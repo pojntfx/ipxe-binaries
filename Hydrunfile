@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Install dependencies
+apt update
+apt install -y git make build-essential liblzma-dev
+
+# Clone upstream
+rm -rf upstream
+mkdir -p upstream
+git clone https://github.com/ipxe/ipxe.git upstream
+
+# Checkout latest release
+cd upstream
+git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
+
+# Build upstream
+cd src
+make bin-i386-pcbios/ipxe.kpxe
+make bin-i386-efi/ipxe.efi
+export EXTRA_CFLAGS="-fno-pie"
+make bin-x86_64-pcbios/ipxe.kpxe
+export EXTRA_CFLAGS=""
+make bin-x86_64-efi/ipxe.efi
+# make bin-arm32-efi/ipxe.efi
+# make bin-arm64-efi/ipxe.efi
+
+# Interactive
+# bash
