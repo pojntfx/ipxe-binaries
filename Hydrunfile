@@ -34,19 +34,24 @@ EMBEDDED_MAKE CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm32 bin-arm32-efi/snp.efi
 # Build 64-bit ARM
 EMBEDDED_MAKE CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 bin-arm64-efi/snp.efi
 
-# Create staging directory
-rm -rf ../../staging
-mkdir -p ../../staging
+# Create tmp directory
+rm -rf ../../tmp
+mkdir -p ../../tmp
 
 # Stage 32-bit X86
-cp bin-i386-pcbios/ipxe.kpxe ../../staging/ipxe-i386.kpxe
-cp bin-i386-efi/ipxe.efi ../../staging/ipxe-i386.efi
+cp bin-i386-pcbios/ipxe.kpxe ../../tmp/ipxe-i386.kpxe
+cp bin-i386-efi/ipxe.efi ../../tmp/ipxe-i386.efi
 
 # Stage 64-bit X86
-cp bin-x86_64-efi/ipxe.efi ../../staging/ipxe-x86_64.efi
+cp bin-x86_64-efi/ipxe.efi ../../tmp/ipxe-x86_64.efi
 
 # Stage 32-bit ARM
-cp bin-arm32-efi/snp.efi ../../staging/ipxe-arm32.efi
+cp bin-arm32-efi/snp.efi ../../tmp/ipxe-arm32.efi
 
 # Stage 64-bit ARM
-cp bin-arm64-efi/snp.efi ../../staging/ipxe-arm64.efi
+cp bin-arm64-efi/snp.efi ../../tmp/ipxe-arm64.efi
+
+# Create tar archive in staging directory
+rm -rf ../../staging
+mkdir -p ../../staging
+tar -zcvf ../../staging/ipxe.tar.gz -C ../../tmp .
