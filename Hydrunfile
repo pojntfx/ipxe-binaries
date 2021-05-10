@@ -2,7 +2,7 @@
 
 # Install dependencies
 apt update
-apt install -y git make build-essential liblzma-dev
+apt install -y git make build-essential liblzma-dev gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
 
 # Clone upstream
 rm -rf upstream
@@ -13,16 +13,40 @@ git clone https://github.com/ipxe/ipxe.git upstream
 cd upstream
 git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 
-# Build upstream
+# Add the embedded script
 cd src
-make bin-i386-pcbios/ipxe.kpxe
-make bin-i386-efi/ipxe.efi
-export EXTRA_CFLAGS="-fno-pie"
-make bin-x86_64-pcbios/ipxe.kpxe
-export EXTRA_CFLAGS=""
-make bin-x86_64-efi/ipxe.efi
-# make bin-arm32-efi/ipxe.efi
-# make bin-arm64-efi/ipxe.efi
+cp ../../init.ipxe .
 
-# Interactive
-# bash
+# Add the embedded script and use all cores
+shopt -s expand_aliases
+alias EMBEDDED_MAKE="make EMBED=\"init.ipxe\" -j$(nproc)"
+
+# Build 32-bit X86
+EMBEDDED_MAKE bin-i386-pcbios/ipxe.kpxe
+EMBEDDED_MAKE bin-i386-efi/ipxe.efi
+
+# Build 64-bit X86
+EMBEDDED_MAKE bin-x86_64-efi/ipxe.efi
+
+# Build 32-bit ARM
+EMBEDDED_MAKE CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm32 bin-arm32-efi/snp.efi
+
+# Build 64-bit ARM
+EMBEDDED_MAKE CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 bin-arm64-efi/snp.efi
+
+# Create staging directory
+rm -rf ../../staging
+mkdir -p ../../staging
+
+# Stage 32-bit X86
+cp bin-i386-pcbios/ipxe.kpxe ../../staging/ipxe-i386.kpxe
+cp bin-i386-efi/ipxe.efi ../../staging/ipxe-i386.efi
+
+# Stage 64-bit X86
+cp bin-x86_64-efi/ipxe.efi ../../staging/ipxe-x86_64.efi
+
+# Stage 32-bit ARM
+cp bin-arm32-efi/snp.efi ../../staging/ipxe-arm32.efi
+
+# Stage 64-bit ARM
+cp bin-arm64-efi/snp.efi ../../staging/ipxe-arm64.efi
