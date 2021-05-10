@@ -13,6 +13,9 @@ git clone https://github.com/ipxe/ipxe.git upstream
 cd upstream
 git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 
+# Enable HTTPS
+sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' src/config/general.h
+
 # Add the embedded script
 cd src
 cp ../../downstream/init.ipxe .

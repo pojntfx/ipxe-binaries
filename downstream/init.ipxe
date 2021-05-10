@@ -1,4 +1,4 @@
 #!ipxe
 
 dhcp
-chain /config.ipxe
+chain tftp://${root-path}:69/config.ipxe
