@@ -15,7 +15,7 @@ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 
 # Add the embedded script
 cd src
-cp ../../init.ipxe .
+cp ../../downstream/init.ipxe .
 
 # Add the embedded script and use all cores
 shopt -s expand_aliases
@@ -50,6 +50,10 @@ cp bin-arm32-efi/snp.efi ../../tmp/ipxe-arm32.efi
 
 # Stage 64-bit ARM
 cp bin-arm64-efi/snp.efi ../../tmp/ipxe-arm64.efi
+
+# Stage downstream files
+cp ../../downstream/config.go ../../tmp
+cp ../../downstream/config.ipxe ../../tmp
 
 # Create tar archive in staging directory
 rm -rf ../../staging
