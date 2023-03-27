@@ -4,7 +4,7 @@ Weekly builds of [https://ipxe.org/](https://ipxe.org/), with an [embedded scrip
 
 ## Overview
 
-**Tired of re-compiling iPXE just to change the embedded script?** This repository, which provides builds of iPXE with an embedded script that chainloads `/config.ipxe` relative to the TFTP server that iPXE was booted from, might be of help to you!
+**Tired of re-compiling iPXE just to change the embedded script?** This repository, which provides builds of iPXE with an embedded script that chainloads `/config.ipxe` hosted on the same next-server configured in your DHCP settings, might be of help to you!
 
 A release `.tar.gz` archive with the latest iPXE release is built weekly and uploaded to [GitHub releases](https://github.com/andrew-stclair/ipxe-binaries/releases).
 
