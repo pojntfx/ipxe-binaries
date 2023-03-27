@@ -6,7 +6,7 @@ Weekly builds of [https://ipxe.org/](ipxe.org), with an [embedded script that ch
 
 **Tired of re-compiling iPXE just to change the embedded script?** This repository, which provides builds of iPXE with an embedded script that chainloads `/config.ipxe` relative to the TFTP server that iPXE was booted from, might be of help to you!
 
-A release `.tar.gz` archive with the latest iPXE release is built weekly and uploaded to [GitHub releases](https://github.com/pojntfx/ipxe-binaries/releases).
+A release `.tar.gz` archive with the latest iPXE release is built weekly and uploaded to [GitHub releases](https://github.com/andrew-stclair/ipxe-binaries/releases).
 
 Binaries are compiled with HTTPS support enabled and are being built for the following [iPXE build targets](https://ipxe.org/appnote/buildtargets):
 
@@ -16,7 +16,7 @@ Binaries are compiled with HTTPS support enabled and are being built for the fol
 - `bin-arm32-efi/snp.efi`
 - `bin-arm64-efi/snp.efi`
 
-Also included is a [bofied](https://github.com/pojntfx/bofied) configuration file ([config.go](./downstream/config.go)) and an example iPXE script ([config.ipxe](./downstream/config.ipxe)) which chainloads [netboot.xyz](https://netboot.xyz/).
+Also included is a [bofied](https://github.com/andrew-stclair/bofied) configuration file ([config.go](./downstream/config.go)) and an example iPXE script ([config.ipxe](./downstream/config.ipxe)) which chainloads [netboot.xyz](https://netboot.xyz/).
 
 ## License
 
