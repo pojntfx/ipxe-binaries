@@ -1,6 +1,6 @@
 # iPXE Binaries
 
-Weekly builds of [https://ipxe.org/](ipxe.org), with an [embedded script that chainloads /config.ipxe](./downstream/init.ipxe).
+Weekly builds of [https://ipxe.org/](https://ipxe.org/), with an [embedded script that chainloads /config.ipxe](./downstream/init.ipxe).
 
 ## Overview
 
