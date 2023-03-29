@@ -55,10 +55,29 @@ cp bin-arm32-efi/snp.efi ../../tmp/ipxe-arm32.efi
 cp bin-arm64-efi/snp.efi ../../tmp/ipxe-arm64.efi
 
 # Stage downstream files
-cp ../../downstream/config.go ../../tmp
 cp ../../downstream/config.ipxe ../../tmp
 
 # Create tar archive in staging directory
 rm -rf ../../staging
 mkdir -p ../../staging
 tar -zcvf ../../staging/ipxe.tar.gz -C ../../tmp .
+
+# Docker preperation stuff
+# Create tmp directory
+rm -rf ../../docker
+mkdir -p ../../docker
+
+# Stage 32-bit X86
+cp bin-i386-pcbios/ipxe.kpxe ../../docker/ipxe-i386.kpxe
+cp bin-i386-efi/ipxe.efi ../../docker/ipxe-i386.efi
+
+# Stage 64-bit X86
+cp bin-x86_64-efi/ipxe.efi ../../docker/ipxe-x86_64.efi
+
+# Stage 32-bit ARM
+cp bin-arm32-efi/snp.efi ../../docker/ipxe-arm32.efi
+
+# Stage 64-bit ARM
+cp bin-arm64-efi/snp.efi ../../docker/ipxe-arm64.efi
+
+cp ../../downstream/config.ipxe ../../docker
