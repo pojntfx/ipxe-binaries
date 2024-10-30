@@ -1,64 +1,63 @@
 #!/bin/bash
 
-# Install dependencies
-apt update
-apt install -y git make build-essential liblzma-dev gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+set -e
 
-# Clone upstream
-rm -rf upstream
-mkdir -p upstream
-git clone https://github.com/ipxe/ipxe.git upstream
+# C
+if [ "$1" = "c" ]; then
+    # Install native dependencies
+    apt update
+    apt install -y git make build-essential liblzma-dev gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu ccache
 
-# Checkout latest release
-cd upstream
-git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
+    # Configure Git
+    git config --global --add safe.directory '*'
 
-# Enable HTTPS
-sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' src/config/general.h
+    # Get latest iPXE release
+    rm -rf ipxe
+    git clone https://github.com/ipxe/ipxe.git
+    cd ipxe/src
+    # We use the latest `master` branch since the release is broken (see https://github.com/ipxe/ipxe/issues/1293),
+    # also run `git checkout $(git tag --sort=-v:refname | head -n1)` once there is a release with the fix
 
-# Add the embedded script
-cd src
-cp ../../downstream/init.ipxe .
+    # Enable HTTPS
+    sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' config/general.h
 
-# Add the embedded script and use all cores
-shopt -s expand_aliases
-alias EMBEDDED_MAKE="make EMBED=\"init.ipxe\" -j$(nproc)"
+    # Add the embedded script
+    cp ../../config/init.ipxe .
 
-# Build 32-bit X86
-EMBEDDED_MAKE bin-i386-pcbios/ipxe.kpxe
-EMBEDDED_MAKE bin-i386-efi/ipxe.efi
+    # Configure make
+    shopt -s expand_aliases
+    alias EMBEDDED_MAKE="make EMBED=\"init.ipxe\" -j$(nproc)"
 
-# Build 64-bit X86
-EMBEDDED_MAKE bin-x86_64-efi/ipxe.efi
+    # Configure ccache
+    ccache -F 0
+    ccache -M 0
 
-# Build 32-bit ARM
-EMBEDDED_MAKE CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm32 bin-arm32-efi/snp.efi
+    # Get ccache stats
+    ccache -s
 
-# Build 64-bit ARM
-EMBEDDED_MAKE CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 bin-arm64-efi/snp.efi
+    # Build
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-pcbios/ipxe.kpxe
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/ipxe.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/ipxe.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache arm-linux-gnueabi-" ARCH=arm32 bin-arm32-efi/snp.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache aarch64-linux-gnu-" ARCH=arm64 bin-arm64-efi/snp.efi
 
-# Create tmp directory
-rm -rf ../../tmp
-mkdir -p ../../tmp
+    # Stage into temporary directory
+    mkdir -p /tmp/out
+    cp bin-i386-pcbios/ipxe.kpxe /tmp/out/ipxe-i386.kpxe
+    cp bin-i386-efi/ipxe.efi /tmp/out/ipxe-i386.efi
+    cp bin-x86_64-efi/ipxe.efi /tmp/out/ipxe-x86_64.efi
+    cp bin-arm32-efi/snp.efi /tmp/out/ipxe-arm32.efi
+    cp bin-arm64-efi/snp.efi /tmp/out/ipxe-arm64.efi
+    cp ../../config/config.go /tmp/out
+    cp ../../config/config.ipxe /tmp/out
 
-# Stage 32-bit X86
-cp bin-i386-pcbios/ipxe.kpxe ../../tmp/ipxe-i386.kpxe
-cp bin-i386-efi/ipxe.efi ../../tmp/ipxe-i386.efi
+    # Create tar archive in out directory
+    mkdir -p ../../out
+    tar -zcvf ../../out/ipxe.tar.gz -C /tmp/out .
 
-# Stage 64-bit X86
-cp bin-x86_64-efi/ipxe.efi ../../tmp/ipxe-x86_64.efi
+    # Get ccache stats
+    ccache -s
 
-# Stage 32-bit ARM
-cp bin-arm32-efi/snp.efi ../../tmp/ipxe-arm32.efi
-
-# Stage 64-bit ARM
-cp bin-arm64-efi/snp.efi ../../tmp/ipxe-arm64.efi
-
-# Stage downstream files
-cp ../../downstream/config.go ../../tmp
-cp ../../downstream/config.ipxe ../../tmp
-
-# Create tar archive in staging directory
-rm -rf ../../staging
-mkdir -p ../../staging
-tar -zcvf ../../staging/ipxe.tar.gz -C ../../tmp .
+    exit 0
+fi
