@@ -25,8 +25,9 @@ if [ "$1" = "c" ]; then
     cp ../../config/init.ipxe .
 
     # Configure make
-    shopt -s expand_aliases
-    alias EMBEDDED_MAKE="make EMBED=\"init.ipxe\" -j$(nproc)"
+    EMBEDDED_MAKE() {
+        make EMBED="init.ipxe" -j"$(nproc)" "$@"
+    }
 
     # Configure ccache
     ccache -F 0
