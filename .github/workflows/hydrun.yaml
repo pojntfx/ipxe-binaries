@@ -76,7 +76,8 @@ jobs:
           path: ${{ matrix.target.dst }}
 
   build-uefi-tools:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: Ubuntu 26.04's efitools package (1.9.2-5) no longer ships KeyTool.efi, HashTool.efi etc.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
