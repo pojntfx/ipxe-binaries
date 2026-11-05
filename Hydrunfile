@@ -120,13 +120,16 @@ if [ "$1" = "c" ]; then
     # Install sbsigntool
     apt install -y sbsigntool
     
-    # Restore signing keys from environment variables
+    # Restore signing keys from environment variables into a temporary folder in the container, never into
+    # $OUTPUT_DIR: everything in there is uploaded to the GitHub release
+    KEY_DIR="$(mktemp -d)"
+    trap 'rm -rf "$KEY_DIR"' EXIT
     cd "$OUTPUT_DIR"
-    echo "$SECUREBOOT_DB_KEY" | base64 -d > DB.key || {
+    echo "$SECUREBOOT_DB_KEY" | base64 -d > "$KEY_DIR/DB.key" || {
         echo "❌ ERROR: Failed to decode SECUREBOOT_DB_KEY"
         exit 1
     }
-    echo "$SECUREBOOT_DB_CRT" | base64 -d > DB.crt || {
+    echo "$SECUREBOOT_DB_CRT" | base64 -d > "$KEY_DIR/DB.crt" || {
         echo "❌ ERROR: Failed to decode SECUREBOOT_DB_CRT"
         exit 1
     }
@@ -147,7 +150,7 @@ if [ "$1" = "c" ]; then
         cp "$file" "${file}.unsigned"
         
         # Sign the binary
-        if ! sbsign --key DB.key --cert DB.crt --output "$file" "${file}.unsigned"; then
+        if ! sbsign --key "$KEY_DIR/DB.key" --cert "$KEY_DIR/DB.crt" --output "$file" "${file}.unsigned"; then
             echo "❌ ERROR: Failed to sign $base_name"
             exit 1
         fi
@@ -168,7 +171,7 @@ if [ "$1" = "c" ]; then
     sign_binary "snponly-arm64.efi"
     
     # Clean up keys
-    rm -f DB.key DB.crt
+    rm -rf "$KEY_DIR"
     
     echo ""
     echo "✓ All EFI binaries signed successfully!"

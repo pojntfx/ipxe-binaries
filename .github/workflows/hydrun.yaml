@@ -128,8 +128,11 @@ jobs:
           
           # Create EFI Signature Lists (.esl files) for our keys
           cert-to-efi-sig-list -g "$GUID" PK.crt PK.esl
-          cert-to-efi-sig-list -g "$GUID" KEK.crt KEK-ipxe.esl
-          cert-to-efi-sig-list -g "$GUID" DB.crt DB-ipxe.esl
+          cert-to-efi-sig-list -g "$GUID" KEK.crt KEK.esl
+          cert-to-efi-sig-list -g "$GUID" DB.crt DB.esl
+          # The -ipxe lists get the Microsoft keys appended below (that's what LockDown installs)
+          cp KEK.esl KEK-ipxe.esl
+          cp DB.esl DB-ipxe.esl
           
           # --- Include Extra Keys from Repository (e.g. Microsoft KEK/DB) ---
           ESL_DIR="securebootsigning/eslfiles"
@@ -205,10 +208,10 @@ jobs:
           
           echo "✓ LockDown-signed.efi built and signed"
           
-          # Clean up private keys
-          rm -f DB.key KEK.key PK.key
-          
-          echo "✓ UEFI tools built, signed, and certificates packaged successfully"
+          # Clean up private keys (also the copies used for the LockDown build)
+          rm -f DB.key KEK.key PK.key efitools/*.key
+
+          echo "✓ UEFI tools built and signed successfully"
         env:
           SECUREBOOT_DB_KEY: ${{ secrets.SECUREBOOT_DB_KEY }}
           SECUREBOOT_DB_CRT: ${{ secrets.SECUREBOOT_DB_CRT }}
@@ -222,6 +225,39 @@ jobs:
         with:
           name: uefi-tools
           path: out/*.efi
+      - name: Collect public keys
+        run: |
+          # PUBLIC keys only. Never copy a *.key file here: the certificates are re-encoded by openssl x509,
+          # which writes just the certificate, so even a CRT secret with a private key pasted into it can't leak.
+          set -euo pipefail
+          mkdir -p publickeys
+          for name in PK KEK DB; do
+            openssl x509 -in "$name.crt" -outform PEM -out "publickeys/publickey-$name.crt"  # PEM, e.g. for sbverify
+            openssl x509 -in "$name.crt" -outform DER -out "publickeys/publickey-$name.cer"  # DER, for firmware setup menus
+            cp "$name.esl" "publickeys/publickey-$name.esl"                                  # EFI signature list, for KeyTool
+          done
+          # The lists LockDown installs: our key plus the Microsoft keys from securebootsigning/eslfiles
+          cp KEK-ipxe.esl publickeys/publickey-KEK-with-microsoft.esl
+          cp DB-ipxe.esl publickeys/publickey-DB-with-microsoft.esl
+
+          # Fail if anything in there looks like a private key or isn't the certificate it claims to be
+          if grep -rl "PRIVATE KEY" publickeys/; then
+            echo "❌ Private key material in the public keys above, not uploading"
+            exit 1
+          fi
+          for f in publickeys/*.crt; do openssl x509 -in "$f" -noout; done
+          for f in publickeys/*.cer; do openssl x509 -inform DER -in "$f" -noout; done
+
+          for f in publickeys/*.crt; do
+            echo "$(basename "$f"): $(openssl x509 -in "$f" -noout -subject -fingerprint -sha256)"
+          done
+          ls -l publickeys/
+      - name: Upload public keys
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-keys
+          path: publickeys/publickey-*
+          if-no-files-found: error
 
   release_github:
     needs: [generate_version_number, build-ipxe, build-uefi-tools]
@@ -237,6 +273,17 @@ jobs:
       run: |
         cd ./artifacts/
         ls -R
+    - name: Make sure no private keys get released
+      run: |
+        if find ./artifacts -type f -iname '*.key' | grep .; then
+          echo "❌ .key files in the release artifacts, not releasing"
+          exit 1
+        fi
+        if grep -rlE -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' ./artifacts/; then
+          echo "❌ Private key material in the files above, not releasing"
+          exit 1
+        fi
+        echo "✓ No private keys in the release artifacts"
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:

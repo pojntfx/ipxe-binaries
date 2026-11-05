@@ -168,10 +168,19 @@ The keys generated are valid for 100 years (36500 days). Before expiration:
 - **HashTool-signed.efi** - Manage hash allow/deny lists
 - **ReadVars-signed.efi** - View enrolled keys
 
-### Certificate Package
-- `certificates/DB.cer` - Enroll this in your firmware
-- `certificates/DB.crt` - For signature verification
-- `certificates/README.txt` - Quick start guide
+### Public Keys
+Only the public halves, all prefixed with `publickey-`. The private keys (`*.key`) never leave the GitHub secrets: the
+release job refuses to publish if any artifact is a `.key` file or contains a PEM private key.
+- `publickey-DB.cer` - **the file to load in the BIOS**: append it to the `db` ("Authorized Signatures") database, next to
+  Microsoft's keys (Option A). It's a DER X.509 certificate, the format most firmware key managers take (AMI Aptio calls it
+  "Public Key Certificate → EFI_CERT_X509 (DER encoded)"). Rename it to `.der` if your firmware only lists `.der` files.
+- `publickey-DB.esl` - the same key as an EFI signature list, for firmware that only accepts signature lists (some Dell
+  models; AMI's "EFI_SIGNATURE_LIST") and for KeyTool
+- `publickey-DB.crt` - PEM, for `sbverify --cert publickey-DB.crt ipxe-x86_64.efi`
+- `publickey-PK.cer/.crt/.esl`, `publickey-KEK.cer/.crt/.esl` - the Platform Key and Key Exchange Key, only needed when
+  replacing all keys (Option B)
+- `publickey-KEK-with-microsoft.esl`, `publickey-DB-with-microsoft.esl` - our key plus the Microsoft keys from
+  `securebootsigning/eslfiles`: the lists that `LockDown-signed.efi` installs
 
 ## Security Best Practices
 
