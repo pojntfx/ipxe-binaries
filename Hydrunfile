@@ -15,7 +15,6 @@ if [ "$1" = "c" ]; then
     rm -rf ipxe
     git clone https://github.com/devedse/ipxe.git --branch feature/pnplist-v1
     cd ipxe/src
-    # We use the feature/force-cdrom-option branch
 
     # Enable features
     sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' config/general.h
