@@ -1,0 +1,100 @@
+#!/bin/bash 
+
+set -e
+
+# C
+if [ "$1" = "c" ]; then
+    # Install native dependencies
+    apt update
+    apt install -y git make build-essential liblzma-dev gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu ccache
+
+    # Configure Git
+    git config --global --add safe.directory '*'
+
+    # Get latest iPXE release
+    rm -rf ipxe
+    git clone https://github.com/ipxe/ipxe.git
+    cd ipxe
+    #git checkout 988d2c13cdf0f0b4140685af35ced70ac5b3283c # tag 1.21.1 => Works
+    #git checkout 7f75d320f6d8ac7ec5185b2145da87f698aec273 # justbefore [aqc1xx] (sep 2 2024) => Works
+    #git checkout c7f2e75519986f5847ba14ccd0e9b846c138aaaf # [aqc1xx] Add support for Marvell AQtion Ethernet controller (sep 2 2024) => Broken
+    cd src
+
+    # Enable features
+    sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' config/general.h
+    sed -i -e 's/\/\/#define\s*PING_CMD/#define PING_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*VLAN_CMD/#define VLAN_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*REBOOT_CMD/#define REBOOT_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*POWEROFF_CMD/#define POWEROFF_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*NSLOOKUP_CMD/#define NSLOOKUP_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*IPSTAT_CMD/#define IPSTAT_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*IMAGE_PNG/#define IMAGE_PNG/g' config/general.h
+    sed -i -e 's/\/\/#define\s*CONSOLE_CMD/#define CONSOLE_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*PCI_CMD/#define PCI_CMD/g' config/general.h
+    # sed -i -e 's/\/\/#define\s*USB_CMD/#define USB_CMD/g' config/general.h
+    # sed -i -e 's/\/\/#define\s*FDT_CMD/#define FDT_CMD/g' config/general.h
+    sed -i -e 's/\/\/#define\s*CONSOLE_FRAMEBUFFER/#define\tCONSOLE_FRAMEBUFFER/g' config/console.h
+    sed -i -e 's/\/\/#define\s*LOG_LEVEL/#define LOG_LEVEL/g' config/console.h
+    sed -i -e 's/\/\/#define\s*PNPLIST_CMD/#define PNPLIST_CMD/g' config/general.h
+
+    # Add the embedded script
+    cp ../../config/init.ipxe .
+
+    # Configure make
+    
+    EMBEDDED_MAKE() {
+        make EMBED="init.ipxe" -j"$(nproc)" NO_WERROR=1 "$@"
+    }
+
+    # Configure ccache
+    ccache -F 0
+    ccache -M 0
+
+    # Get ccache stats
+    ccache -s
+
+    # Build
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-pcbios/ipxe.kpxe
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/ipxe.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/ipxe.efi
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache arm-linux-gnueabi-" ARCH=arm32 bin-arm32-efi/snp.efi
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache aarch64-linux-gnu-" ARCH=arm64 bin-arm64-efi/snp.efi
+    
+    # # Build Realtek-specific binaries (10ec:8126)
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/10ec8126.efi
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/10ec8126.efi
+    
+    # Build SNP and SNP-only variants for x86 architectures
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/snp.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/snponly.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/snp.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/snponly.efi
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache arm-linux-gnueabi-" ARCH=arm32 bin-arm32-efi/snponly.efi
+    # EMBEDDED_MAKE CROSS_COMPILE="ccache aarch64-linux-gnu-" ARCH=arm64 bin-arm64-efi/snponly.efi
+
+    # Output files directly to the final directory
+    OUTPUT_DIR="../../out"
+    mkdir -p "$OUTPUT_DIR"
+    cp bin-i386-pcbios/ipxe.kpxe "$OUTPUT_DIR/ipxe-i386.kpxe"
+    cp bin-i386-efi/ipxe.efi "$OUTPUT_DIR/ipxe-i386.efi"
+    cp bin-x86_64-efi/ipxe.efi "$OUTPUT_DIR/ipxe-x86_64.efi"
+    # cp bin-arm32-efi/snp.efi "$OUTPUT_DIR/ipxe-arm32.efi"
+    # cp bin-arm64-efi/snp.efi "$OUTPUT_DIR/ipxe-arm64.efi"
+    
+    # # Copy Realtek-specific binaries (10ec:8126)
+    # cp bin-i386-efi/10ec8126.efi "$OUTPUT_DIR/realtek-10ec8126-i386.efi"
+    # cp bin-x86_64-efi/10ec8126.efi "$OUTPUT_DIR/realtek-10ec8126-x86_64.efi"
+    
+    # Copy SNP variants
+    cp bin-i386-efi/snp.efi "$OUTPUT_DIR/snp-i386.efi"
+    cp bin-i386-efi/snponly.efi "$OUTPUT_DIR/snponly-i386.efi"
+    cp bin-x86_64-efi/snp.efi "$OUTPUT_DIR/snp-x86_64.efi"
+    cp bin-x86_64-efi/snponly.efi "$OUTPUT_DIR/snponly-x86_64.efi"
+    # cp bin-arm32-efi/snponly.efi "$OUTPUT_DIR/snponly-arm32.efi"
+    # cp bin-arm64-efi/snponly.efi "$OUTPUT_DIR/snponly-arm64.efi"
+
+    # Get ccache stats
+    ccache -s
+
+    exit 0
+fi

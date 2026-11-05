@@ -1,24 +1,39 @@
 name: hydrun CI
 
 on:
+  workflow_dispatch:
   push:
-  pull_request:
-  schedule:
-    - cron: "0 0 * * 0"
+#   pull_request:
+#   schedule:
+#     - cron: "0 0 * * 0"
 
 jobs:
-  build-linux:
+  generate_version_number:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      build_number: ${{ steps.buildnumber.outputs.build_number }}
+    steps:
+    - name: Generate build number
+      id: buildnumber
+      uses: onyxmueller/build-tag-number@v1
+      with:
+        token: ${{secrets.GITHUB_TOKEN}}
+  
+  build-ipxe:
+    needs: generate_version_number
     runs-on: ${{ matrix.target.runner }}
     permissions:
       contents: read
     strategy:
       matrix:
         target:
-          # Binaries
+          # Binaries (includes both iPXE and SNP variants)
           - id: c.ipxe
             src: .
             os: debian:bookworm
-            flags: -e '-v /tmp/ccache:/root/.cache/ccache'
+            flags: -e '-v /tmp/ccache:/root/.cache/ccache -e SECUREBOOT_DB_KEY -e SECUREBOOT_DB_CRT'
             cmd: ./Hydrunfile c
             dst: out/*
             runner: ubuntu-latest
@@ -43,6 +58,9 @@ jobs:
       - name: Build with hydrun
         working-directory: ${{ matrix.target.src }}
         run: hydrun -o ${{ matrix.target.os }} ${{ matrix.target.flags }} "${{ matrix.target.cmd }}"
+        env:
+          SECUREBOOT_DB_KEY: ${{ secrets.SECUREBOOT_DB_KEY }}
+          SECUREBOOT_DB_CRT: ${{ secrets.SECUREBOOT_DB_CRT }}
       - name: Fix permissions for output
         run: sudo chown -R $USER .
       - name: Save ccache
@@ -57,34 +75,226 @@ jobs:
           name: ${{ matrix.target.id }}
           path: ${{ matrix.target.dst }}
 
-  publish-linux:
-    runs-on: ubuntu-latest
+  build-uefi-tools:
+    # Not ubuntu-latest: Ubuntu 26.04's efitools package (1.9.2-5) no longer ships KeyTool.efi, HashTool.efi etc.
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
-    needs: build-linux
-
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Download output
-        uses: actions/download-artifact@v4
+      - name: Build and sign UEFI tools
+        run: |
+          # Validate all required secrets are present
+          MISSING_SECRETS=()
+          if [ -z "$SECUREBOOT_DB_KEY" ]; then MISSING_SECRETS+=("SECUREBOOT_DB_KEY"); fi
+          if [ -z "$SECUREBOOT_DB_CRT" ]; then MISSING_SECRETS+=("SECUREBOOT_DB_CRT"); fi
+          if [ -z "$SECUREBOOT_KEK_KEY" ]; then MISSING_SECRETS+=("SECUREBOOT_KEK_KEY"); fi
+          if [ -z "$SECUREBOOT_KEK_CRT" ]; then MISSING_SECRETS+=("SECUREBOOT_KEK_CRT"); fi
+          if [ -z "$SECUREBOOT_PK_KEY" ]; then MISSING_SECRETS+=("SECUREBOOT_PK_KEY"); fi
+          if [ -z "$SECUREBOOT_PK_CRT" ]; then MISSING_SECRETS+=("SECUREBOOT_PK_CRT"); fi
+          if [ -z "$SECUREBOOT_GUID" ]; then MISSING_SECRETS+=("SECUREBOOT_GUID"); fi
+          
+          if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
+            echo "❌ Error: The following required secrets are missing:"
+            printf '  - %s\n' "${MISSING_SECRETS[@]}"
+            echo ""
+            echo "Please add these secrets to the repository settings."
+            exit 1
+          fi
+          
+          # Download and extract efitools
+          sudo apt-get update
+          apt-get download efitools
+          dpkg-deb -x efitools_*.deb efitools-extracted
+          
+          # Install required tools
+          sudo apt-get install -y sbsigntool efitools uuid-runtime
+          
+          # Decode all signing keys and certificates
+          echo "$SECUREBOOT_DB_KEY" | base64 -d > DB.key
+          echo "$SECUREBOOT_DB_CRT" | base64 -d > DB.crt
+          echo "$SECUREBOOT_KEK_KEY" | base64 -d > KEK.key
+          echo "$SECUREBOOT_KEK_CRT" | base64 -d > KEK.crt
+          echo "$SECUREBOOT_PK_KEY" | base64 -d > PK.key
+          echo "$SECUREBOOT_PK_CRT" | base64 -d > PK.crt
+          
+          # Get GUID from secrets
+          GUID="$SECUREBOOT_GUID"
+          
+          # Convert PEM certificates to DER format
+          openssl x509 -outform DER -in DB.crt -out DB.cer
+          openssl x509 -outform DER -in KEK.crt -out KEK.cer
+          openssl x509 -outform DER -in PK.crt -out PK.cer
+          
+          # Create EFI Signature Lists (.esl files) for our keys
+          cert-to-efi-sig-list -g "$GUID" PK.crt PK.esl
+          cert-to-efi-sig-list -g "$GUID" KEK.crt KEK.esl
+          cert-to-efi-sig-list -g "$GUID" DB.crt DB.esl
+          # The -ipxe lists get the Microsoft keys appended below (that's what LockDown installs)
+          cp KEK.esl KEK-ipxe.esl
+          cp DB.esl DB-ipxe.esl
+          
+          # --- Include Extra Keys from Repository (e.g. Microsoft KEK/DB) ---
+          ESL_DIR="securebootsigning/eslfiles"
+          
+          if [ ! -d "$ESL_DIR" ]; then
+             echo "❌ Error: $ESL_DIR directory not found!"
+             exit 1
+          fi
+            
+          echo "Searching for extra keys in $ESL_DIR..."
+          
+          # Append KEKs (checking for both "KEK_" and "kek_" prefixes if needed, but your files use KEK_)
+          for f in "$ESL_DIR"/[Kk][Ee][Kk]_*.esl; do
+              if [ -f "$f" ]; then
+                  echo "  -> Appending KEK: $(basename "$f")"
+                  cat "$f" >> KEK-ipxe.esl
+              fi
+          done
+          
+          # Append DBs
+          for f in "$ESL_DIR"/db_*.esl; do
+              if [ -f "$f" ]; then
+                  echo "  -> Appending DB: $(basename "$f")"
+                  cat "$f" >> DB-ipxe.esl
+              fi
+          done
+          # -----------------------------------------------------------------------------
+          
+          echo "✓ EFI Signature Lists created (Extra keys appended successfully)"
+          
+          # Create output directory
+          mkdir -p out
+          
+          # Sign standard UEFI tools (they're in usr/lib/efitools/x86_64-linux-gnu/)
+          sbsign --key DB.key --cert DB.crt --output out/KeyTool-signed.efi efitools-extracted/usr/lib/efitools/x86_64-linux-gnu/KeyTool.efi
+          sbsign --key DB.key --cert DB.crt --output out/HashTool-signed.efi efitools-extracted/usr/lib/efitools/x86_64-linux-gnu/HashTool.efi
+          sbsign --key DB.key --cert DB.crt --output out/ReadVars-signed.efi efitools-extracted/usr/lib/efitools/x86_64-linux-gnu/ReadVars.efi
+          
+          # Build custom LockDown.efi with our keys embedded
+          sudo apt-get install -y git build-essential gnu-efi libfile-slurp-perl help2man
+          git clone --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/jejb/efitools.git
+          cd efitools
+          
+          # 1. Pre-build the tools to ensure they are older than our injected files
+          # This prevents Make from thinking the tools changed and regenerating the ESLs
+          make cert-to-efi-sig-list sign-efi-sig-list
+
+          # 2. Copy certificates/keys (needed as dependencies) & Set timestamps to the past
+          # We need them present so Make doesn't complain, but OLD so Make doesn't rebuild ESLs
+          cp ../PK.crt .
+          cp ../PK.key .
+          cp ../KEK.crt .
+          cp ../KEK.key .
+          cp ../DB.crt .
+          cp ../DB.key .
+          touch -d "2 hours ago" *.crt *.key
+
+          # 3. Copy our Custom/Hybrid ESL files
+          cp ../PK.esl .
+          cp ../KEK-ipxe.esl KEK.esl
+          cp ../DB-ipxe.esl DB.esl
+          
+          # 4. Ensure ESL files are 'new' (timestamp = NOW)
+          # Logic: Target (ESL, now) > Prerequisite (CRT/Tool, old) => Skip Regeneration
+          touch *.esl
+          
+          # 5. Build LockDown with embedded .esl files
+          make ENABLE_LOCKDOWN=1
+          
+          # Sign the LockDown.efi
+          cd ..
+          sbsign --key DB.key --cert DB.crt --output out/LockDown-signed.efi efitools/LockDown.efi
+          
+          echo "✓ LockDown-signed.efi built and signed"
+          
+          # Clean up private keys (also the copies used for the LockDown build)
+          rm -f DB.key KEK.key PK.key efitools/*.key
+
+          echo "✓ UEFI tools built and signed successfully"
+        env:
+          SECUREBOOT_DB_KEY: ${{ secrets.SECUREBOOT_DB_KEY }}
+          SECUREBOOT_DB_CRT: ${{ secrets.SECUREBOOT_DB_CRT }}
+          SECUREBOOT_KEK_KEY: ${{ secrets.SECUREBOOT_KEK_KEY }}
+          SECUREBOOT_KEK_CRT: ${{ secrets.SECUREBOOT_KEK_CRT }}
+          SECUREBOOT_PK_KEY: ${{ secrets.SECUREBOOT_PK_KEY }}
+          SECUREBOOT_PK_CRT: ${{ secrets.SECUREBOOT_PK_CRT }}
+          SECUREBOOT_GUID: ${{ secrets.SECUREBOOT_GUID }}
+      - name: Upload UEFI tools
+        uses: actions/upload-artifact@v4
         with:
-          path: /tmp/out
-      - name: Extract branch name
-        id: extract_branch
-        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
-      - name: Publish pre-release to GitHub releases
-        if: ${{ github.ref == 'refs/heads/main' }}
-        uses: softprops/action-gh-release@v2
+          name: uefi-tools
+          path: out/*.efi
+      - name: Collect public keys
+        run: |
+          # PUBLIC keys only. Never copy a *.key file here: the certificates are re-encoded by openssl x509,
+          # which writes just the certificate, so even a CRT secret with a private key pasted into it can't leak.
+          set -euo pipefail
+          mkdir -p publickeys
+          for name in PK KEK DB; do
+            openssl x509 -in "$name.crt" -outform PEM -out "publickeys/publickey-$name.crt"  # PEM, e.g. for sbverify
+            openssl x509 -in "$name.crt" -outform DER -out "publickeys/publickey-$name.cer"  # DER, for firmware setup menus
+            cp "$name.esl" "publickeys/publickey-$name.esl"                                  # EFI signature list, for KeyTool
+          done
+          # The lists LockDown installs: our key plus the Microsoft keys from securebootsigning/eslfiles
+          cp KEK-ipxe.esl publickeys/publickey-KEK-with-microsoft.esl
+          cp DB-ipxe.esl publickeys/publickey-DB-with-microsoft.esl
+
+          # Fail if anything in there looks like a private key or isn't the certificate it claims to be
+          if grep -rl "PRIVATE KEY" publickeys/; then
+            echo "❌ Private key material in the public keys above, not uploading"
+            exit 1
+          fi
+          for f in publickeys/*.crt; do openssl x509 -in "$f" -noout; done
+          for f in publickeys/*.cer; do openssl x509 -inform DER -in "$f" -noout; done
+
+          for f in publickeys/*.crt; do
+            echo "$(basename "$f"): $(openssl x509 -in "$f" -noout -subject -fingerprint -sha256)"
+          done
+          ls -l publickeys/
+      - name: Upload public keys
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: release-${{ steps.extract_branch.outputs.branch }}
-          prerelease: true
-          files: |
-            /tmp/out/*/*
-      - name: Publish release to GitHub releases
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          prerelease: false
-          files: |
-            /tmp/out/*/*
+          name: public-keys
+          path: publickeys/publickey-*
+          if-no-files-found: error
+
+  release_github:
+    needs: [generate_version_number, build-ipxe, build-uefi-tools]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts/
+
+    - name: Display structure of downloaded files
+      run: |
+        cd ./artifacts/
+        ls -R
+    - name: Make sure no private keys get released
+      run: |
+        if find ./artifacts -type f -iname '*.key' | grep .; then
+          echo "❌ .key files in the release artifacts, not releasing"
+          exit 1
+        fi
+        if grep -rlE -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' ./artifacts/; then
+          echo "❌ Private key material in the files above, not releasing"
+          exit 1
+        fi
+        echo "✓ No private keys in the release artifacts"
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: 1.0.${{needs.generate_version_number.outputs.build_number}}
+        name: 1.0.${{needs.generate_version_number.outputs.build_number}}
+        body: |
+          ${{ github.event.head_commit.message }}
+        files: |
+          ./artifacts/*/*
+        fail_on_unmatched_files: true
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

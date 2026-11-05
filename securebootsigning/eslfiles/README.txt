@@ -1,0 +1,1 @@
+These files were extracted using KeyTool.efi from my own Gigabyte Aorus Ultra X570 board.

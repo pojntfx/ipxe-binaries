@@ -1,4 +1,5 @@
 #!ipxe
 
 dhcp
+shell
 chain --autofree https://boot.netboot.xyz/
