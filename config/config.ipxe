@@ -1,4 +1,4 @@
 #!ipxe
 
-dhcp
-chain --autofree https://boot.netboot.xyz/
+echo Booting from ${filename}
+chain ${filename}

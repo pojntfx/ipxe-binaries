@@ -1,4 +1,5 @@
 #!ipxe
 
 dhcp
-chain tftp://${root-path}:69/config.ipxe
+echo Booting from ${filename}
+chain ${filename}

@@ -11,12 +11,17 @@ if [ "$1" = "c" ]; then
     # Configure Git
     git config --global --add safe.directory '*'
 
-    # Get latest iPXE release
+    # iPXE version to build — override via IPXE_VERSION env var if needed.
+    # v2.0.0 includes critical Broadcom NetXtreme-E (BCM57508) error-recovery fix
+    # and UEFI Secure Boot support.  See https://github.com/ipxe/ipxe/releases/tag/v2.0.0
+    IPXE_VERSION="${IPXE_VERSION:-v2.0.0}"
+    echo "Building iPXE from tag/ref: ${IPXE_VERSION}"
+
+    # Get iPXE source at the pinned version
     rm -rf ipxe
     git clone https://github.com/ipxe/ipxe.git
     cd ipxe/src
-    # We use the latest `master` branch since the release is broken (see https://github.com/ipxe/ipxe/issues/1293),
-    # also run `git checkout $(git tag --sort=-v:refname | head -n1)` once there is a release with the fix
+    git checkout "${IPXE_VERSION}"
 
     # Enable HTTPS
     sed -i -e 's/#undef\tDOWNLOAD_PROTO_HTTPS/#define\tDOWNLOAD_PROTO_HTTPS/g' config/general.h
@@ -36,20 +41,26 @@ if [ "$1" = "c" ]; then
     # Get ccache stats
     ccache -s
 
-    # Build
+    # Build — includes snponly.efi for UEFI environments (Broadcom BCM57508 etc.)
     EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-pcbios/ipxe.kpxe
     EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-i386-efi/ipxe.efi
     EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/ipxe.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-efi/snponly.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache " bin-x86_64-pcbios/undionly.kpxe
     EMBEDDED_MAKE CROSS_COMPILE="ccache arm-linux-gnueabi-" ARCH=arm32 bin-arm32-efi/snp.efi
     EMBEDDED_MAKE CROSS_COMPILE="ccache aarch64-linux-gnu-" ARCH=arm64 bin-arm64-efi/snp.efi
+    EMBEDDED_MAKE CROSS_COMPILE="ccache aarch64-linux-gnu-" ARCH=arm64 bin-arm64-efi/snponly.efi
 
     # Stage into temporary directory
     mkdir -p /tmp/out
     cp bin-i386-pcbios/ipxe.kpxe /tmp/out/ipxe-i386.kpxe
     cp bin-i386-efi/ipxe.efi /tmp/out/ipxe-i386.efi
     cp bin-x86_64-efi/ipxe.efi /tmp/out/ipxe-x86_64.efi
+    cp bin-x86_64-efi/snponly.efi /tmp/out/snponly-x86_64.efi
     cp bin-arm32-efi/snp.efi /tmp/out/ipxe-arm32.efi
     cp bin-arm64-efi/snp.efi /tmp/out/ipxe-arm64.efi
+    cp bin-arm64-efi/snponly.efi /tmp/out/snponly-arm64.efi
+    cp bin-x86_64-pcbios/undionly.kpxe /tmp/out/undionly.kpxe
     cp ../../config/config.go /tmp/out
     cp ../../config/config.ipxe /tmp/out
 

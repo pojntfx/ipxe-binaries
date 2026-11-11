@@ -22,6 +22,20 @@ func Filename(
 	}
 }
 
+// SnpFilename returns the SNP-only iPXE binary for the given architecture.
+// SNP binaries delegate to the UEFI network driver and are useful for NICs
+// like the Broadcom BCM57508 where the native iPXE driver may not be needed.
+func SnpFilename(arch string) string {
+	switch arch {
+	case "x64 UEFI":
+		return "snponly-x86_64.efi"
+	case "ARM 64-bit UEFI":
+		return "snponly-arm64.efi"
+	default:
+		return ""
+	}
+}
+
 func Configure() map[string]string {
 	return map[string]string{
 		"useStdlib": "false",

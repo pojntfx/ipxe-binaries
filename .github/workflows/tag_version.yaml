@@ -1,0 +1,54 @@
+name: Tag Version
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"  # Runs every Sunday at midnight
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tag-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Get the latest tag
+        id: get_latest_tag
+        run: |
+          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "Latest tag: $latest_tag"
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+
+      - name: Calculate next version
+        id: calculate_version
+        run: |
+          latest_tag=${{ steps.get_latest_tag.outputs.latest_tag }}
+          if [[ $latest_tag =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          patch=${BASH_REMATCH[3]}
+          new_tag="v$major.$minor.$((patch + 1))"
+          else
+          new_tag="v1.0.0"
+          fi
+          echo "New tag: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+      - name: Create new tag
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const newTag = '${{ steps.calculate_version.outputs.new_tag }}';
+            const ref = await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${newTag}`,
+              sha: context.sha,
+            });
+            console.log(`Created tag ${newTag}`);
